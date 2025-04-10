@@ -2,33 +2,39 @@ import { neon } from '@neondatabase/serverless';
 import { NextResponse } from 'next/server';
 
 // POST /api/investments - Create a new investment record
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   const sql = neon(process.env.NEXT_PUBLIC_DATABASE_URL!);
   
   try {
-    const { property_id, user_id, amount, tokens, tx_hash, wallet_address } = await req.json();
+    const body = await request.json();
+    console.log('Received investment data:', body);
+
+    // Extract data from request body
+    const { property_id, user_id, amount, tokens, tx_hash, wallet_address } = body;
 
     // Validate required fields
     if (!property_id || !user_id || !amount || !tokens || !tx_hash || !wallet_address) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required fields' },
-        { status: 400 }
-      );
+      console.error('Missing required fields:', { property_id, user_id, amount, tokens, tx_hash, wallet_address });
+      return NextResponse.json({
+        success: false,
+        error: 'Missing required fields'
+      }, { status: 400 });
     }
 
     // Start transaction
     await sql`BEGIN`;
 
     try {
-      // Insert the investment record
-      const result = await sql`
+      // Insert investment record
+      const response = await sql`
         INSERT INTO investments (
           property_id,
           user_id,
           amount,
           tokens,
-          tx_hash,
+          transaction_hash,
           wallet_address,
+          status,
           created_at
         ) VALUES (
           ${property_id},
@@ -37,41 +43,34 @@ export async function POST(req: Request) {
           ${tokens},
           ${tx_hash},
           ${wallet_address},
+          'completed',
           NOW()
-        ) RETURNING *
+        )
+        RETURNING *
       `;
 
-      // Update property available tokens
-      await sql`
-        UPDATE properties 
-        SET available_tokens = available_tokens - ${tokens}
-        WHERE id = ${property_id}
-      `;
+      console.log('Investment recorded successfully:', response);
 
       // Commit transaction
       await sql`COMMIT`;
 
       return NextResponse.json({
         success: true,
-        message: 'Investment recorded successfully'
+        data: response[0]
       });
-
     } catch (error) {
       // Rollback transaction on error
       await sql`ROLLBACK`;
+      console.error('Database transaction error:', error);
       throw error;
     }
-
   } catch (error: any) {
-    console.error('Database error:', error);
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: error.message || 'Failed to record investment',
-        details: process.env.NODE_ENV === 'development' ? error : undefined
-      },
-      { status: 500 }
-    );
+    console.error('Error storing investment:', error);
+    return NextResponse.json({
+      success: false,
+      error: error.message || 'Failed to record investment',
+      details: process.env.NODE_ENV === 'development' ? error : undefined
+    }, { status: 500 });
   }
 }
 

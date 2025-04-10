@@ -87,6 +87,43 @@ const PropertyInvestmentABI = [
     ],
     "stateMutability": "view",
     "type": "function"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "investmentId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "investor",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "propertyId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "tokens",
+        "type": "uint256"
+      }
+    ],
+    "name": "InvestmentMade",
+    "type": "event"
   }
 ];
 
@@ -310,7 +347,8 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
 
       // Make the investment
       const tx = await contract.invest(propertyId, tokensBigInt, {
-        value: investmentAmount
+        value: investmentAmount,
+        gasLimit: 3000000 // Add explicit gas limit
       });
 
       // Show transaction pending toast
@@ -319,17 +357,37 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
       // Wait for transaction to be mined
       const receipt = await tx.wait();
       
-      if (receipt.status === 1) {
-        // Get the investment ID from the event
-        const event = receipt.logs.find(
-          (log: any) => log.fragment?.name === 'InvestmentMade'
-        );
+      if (!receipt) {
+        throw new Error('Transaction receipt not found. Please check the transaction hash on the blockchain explorer.');
+      }
 
-        if (!event) {
-          throw new Error('Investment event not found in transaction receipt');
+      // Log the full receipt for debugging
+      console.log('Full transaction receipt:', receipt);
+
+      if (receipt.status === 1) {
+        // Verify the contract address matches
+        if (receipt.to?.toLowerCase() !== contractAddress.toLowerCase()) {
+          throw new Error(`Transaction was sent to wrong contract address. Expected: ${contractAddress}, Got: ${receipt.to}`);
         }
 
-        // Transaction successful
+        // Get the investment ID from the event
+        const event = receipt.logs.find((log: any) => {
+          try {
+            // Get the event signature
+            const eventSignature = contract.interface.getEvent('InvestmentMade');
+            if (!eventSignature) {
+              console.error('Event signature not found');
+              return false;
+            }
+            // Check if this log matches our event signature
+            return log.topics[0] === eventSignature.topicHash;
+          } catch (e) {
+            console.error('Error parsing log:', e);
+            return false;
+          }
+        });
+
+        // Transaction successful, proceed with database update even if event not found
         setTransactionHash(tx.hash);
         setTransactionPending(false);
         setTransactionSuccess(true);
@@ -337,29 +395,34 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
 
         // Record the investment in your backend
         try {
+          const investmentData = {
+            property_id: propertyId,
+            user_id: user.id,
+            amount: ethers.formatEther(investmentAmount),
+            tokens: tokensNumber,
+            tx_hash: tx.hash,
+            wallet_address: await signer.getAddress(),
+          };
+
+          console.log('Sending investment data to API:', investmentData);
+
           const response = await fetch('/api/investments', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-              property_id: propertyId,
-              user_id: user.id,
-              amount: ethers.formatEther(investmentAmount),
-              tokens: tokensNumber,
-              tx_hash: tx.hash,
-              wallet_address: await signer.getAddress(),
-            }),
+            body: JSON.stringify(investmentData),
           });
 
+          const responseData = await response.json();
+          console.log('API Response:', responseData);
+
           if (!response.ok) {
-            throw new Error('Failed to record investment in database');
+            throw new Error(responseData.error || 'Failed to record investment in database');
           }
 
-          const data = await response.json();
-
-          if (!data.success) {
-            throw new Error(data.error || 'Failed to record investment');
+          if (!responseData.success) {
+            throw new Error(responseData.error || 'Failed to record investment');
           }
 
           // Update the property's available tokens

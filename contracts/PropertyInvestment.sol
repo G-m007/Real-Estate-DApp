@@ -26,9 +26,12 @@ contract PropertyInvestment {
         require(msg.value > 0, "Investment amount must be greater than 0");
         require(tokens > 0, "Token amount must be greater than 0");
         require(propertyId > 0, "Invalid property ID");
+        require(msg.sender != address(0), "Invalid investor address");
 
         investmentCount++;
-        investments[investmentCount] = Investment({
+        uint256 currentInvestmentId = investmentCount;
+
+        investments[currentInvestmentId] = Investment({
             investor: msg.sender,
             propertyId: propertyId,
             amount: msg.value,
@@ -38,8 +41,9 @@ contract PropertyInvestment {
 
         investorProperties[msg.sender].push(propertyId);
 
+        // Emit event with all parameters
         emit InvestmentMade(
-            investmentCount,
+            currentInvestmentId,
             msg.sender,
             propertyId,
             msg.value,
