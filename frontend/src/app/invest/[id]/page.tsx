@@ -232,17 +232,23 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
 
     const fetchProperty = async () => {
       try {
+        setLoading(true);
+        setError('');
+        
         const response = await fetch(`/api/properties/${params.id}`);
-        if (!response.ok) {
-          throw new Error('Property not found');
-        }
         const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to fetch property');
+        }
+
         if (data.success && data.property) {
           setProperty(data.property);
         } else {
-          throw new Error(data.error || 'Failed to fetch property');
+          throw new Error(data.error || 'Property not found');
         }
       } catch (error: any) {
+        console.error('Error fetching property:', error);
         setError(error.message);
       } finally {
         setLoading(false);
@@ -396,7 +402,7 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
         // Record the investment in your backend
         try {
           const investmentData = {
-            property_id: propertyId,
+            property_id: property.id,
             user_id: user.id,
             amount: ethers.formatEther(investmentAmount),
             tokens: tokensNumber,
@@ -426,18 +432,37 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
           }
 
           // Update the property's available tokens
-          const updatedProperty = await fetch(`/api/properties/${propertyId}`, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              available_tokens: property.availableTokens - tokensNumber,
-            }),
-          });
+          try {
+            const updateResponse = await fetch(`/api/properties/${propertyId}`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                available_tokens: property.availableTokens - tokensNumber,
+              }),
+            });
 
-          if (!updatedProperty.ok) {
-            console.error('Failed to update property tokens');
+            const updateData = await updateResponse.json();
+            console.log('Property update response:', updateData);
+
+            if (!updateResponse.ok) {
+              throw new Error(updateData.error || 'Failed to update property tokens');
+            }
+
+            if (!updateData.success) {
+              throw new Error(updateData.error || 'Failed to update property');
+            }
+
+            // Update the local property state
+            setProperty(prev => prev ? {
+              ...prev,
+              availableTokens: prev.availableTokens - tokensNumber
+            } : null);
+
+          } catch (err) {
+            console.error('Property update error:', err);
+            toast.error('Investment recorded but property update failed. Please contact support.');
           }
 
           // Show success modal
@@ -532,6 +557,34 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
     );
   }
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0A0F1C] flex items-center justify-center">
+        <div className="flex flex-col items-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
+          <p className="text-gray-300">Loading property details...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-[#0A0F1C] flex items-center justify-center">
+        <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-8 max-w-md w-full mx-4">
+          <h2 className="text-xl font-bold text-white mb-4">Error</h2>
+          <p className="text-gray-300 mb-6">{error}</p>
+          <Link 
+            href="/invest"
+            className="inline-block px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-opacity"
+          >
+            Back to Properties
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#0A0F1C]">
       {/* Background Gradients */}
@@ -553,15 +606,7 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
           Back to Properties
         </Link>
 
-        {loading ? (
-          <div className="flex justify-center items-center min-h-[400px]">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-          </div>
-        ) : error ? (
-          <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-6 text-red-200">
-            {error}
-          </div>
-        ) : property ? (
+        {property && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Property Details */}
             <div className="space-y-6">
@@ -585,19 +630,19 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-gray-400 text-sm mb-1">Total Value</p>
-                    <p className="text-white font-medium">${property.totalValue.toLocaleString()}</p>
+                    <p className="text-white font-medium">${property?.totalValue?.toLocaleString() || '0'}</p>
                   </div>
                   <div>
                     <p className="text-gray-400 text-sm mb-1">Expected Return</p>
-                    <p className="text-green-400 font-medium">{property.expectedReturn}%</p>
+                    <p className="text-green-400 font-medium">{property?.expectedReturn || 0}%</p>
                   </div>
                   <div>
                     <p className="text-gray-400 text-sm mb-1">Available Tokens</p>
-                    <p className="text-white font-medium">{property.availableTokens.toLocaleString()}</p>
+                    <p className="text-white font-medium">{property?.availableTokens?.toLocaleString() || '0'}</p>
                   </div>
                   <div>
                     <p className="text-gray-400 text-sm mb-1">Share Price</p>
-                    <p className="text-white font-medium">${property.sharePrice}</p>
+                    <p className="text-white font-medium">${property?.sharePrice || '0'}</p>
                   </div>
                 </div>
                 <div className="mt-4">
@@ -651,26 +696,26 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
                         <span className="text-gray-400">Amount</span>
-                        <span className="text-white">{tokens} ETH</span>
+                        <span className="text-white">{tokens || '0'} ETH</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-400">Shares to Receive</span>
                         <span className="text-white">
-                          {Math.floor(Number(tokens) / Number(property.sharePrice)).toLocaleString()}
+                          {Math.floor(Number(tokens || 0) / Number(property?.sharePrice || 1)).toLocaleString()}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-400">Expected Annual Return</span>
-                        <span className="text-green-400">{property.expectedReturn}%</span>
+                        <span className="text-green-400">{property?.expectedReturn || 0}%</span>
                       </div>
                     </div>
                   </div>
 
                   <button
                     onClick={handleInvest}
-                    disabled={investing || !tokens || parseInt(tokens) > property.availableTokens}
+                    disabled={investing || !tokens || parseInt(tokens) > (property?.availableTokens || 0)}
                     className={`w-full px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed ${
-                      investing || !tokens || parseInt(tokens) > property.availableTokens
+                      investing || !tokens || parseInt(tokens) > (property?.availableTokens || 0)
                         ? 'bg-blue-500/50 cursor-not-allowed'
                         : 'bg-blue-500 hover:bg-blue-600'
                     }`}
@@ -684,17 +729,6 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
                 </div>
               )}
             </div>
-          </div>
-        ) : (
-          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-8 border border-gray-700/50 text-center">
-            <h2 className="text-xl font-bold text-white mb-4">Property Not Found</h2>
-            <p className="text-gray-300 mb-6">The property you're looking for doesn't exist or is no longer available.</p>
-            <Link 
-              href="/invest"
-              className="inline-block px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-opacity"
-            >
-              View Available Properties
-            </Link>
           </div>
         )}
       </div>

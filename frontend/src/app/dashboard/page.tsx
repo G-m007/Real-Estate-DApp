@@ -5,10 +5,27 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getUserDetails } from "../../../server/index";
 
+type Investment = {
+  id: string;
+  propertyId: string;
+  propertyName: string;
+  location: string;
+  imageUrl: string;
+  amount: string;
+  tokens: number;
+  txHash: string;
+  walletAddress: string;
+  createdAt: string;
+  expectedReturn: number;
+  propertyValue: number;
+};
+
 export default function Dashboard() {
   const { user } = useUser();
   const [profile, setProfile] = useState<any>(null);
+  const [investments, setInvestments] = useState<Investment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [investmentsLoading, setInvestmentsLoading] = useState(true);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -24,8 +41,35 @@ export default function Dashboard() {
       }
     };
 
+    const fetchInvestments = async () => {
+      if (user?.id) {
+        try {
+          const response = await fetch(`/api/investments?user_id=${user.id}`);
+          const data = await response.json();
+          
+          if (data.success) {
+            setInvestments(data.investments);
+          }
+        } catch (error) {
+          console.error("Error fetching investments:", error);
+        } finally {
+          setInvestmentsLoading(false);
+        }
+      }
+    };
+
     fetchProfile();
+    fetchInvestments();
   }, [user]);
+
+  // Calculate total value properly
+  const totalValue = investments.reduce((sum, inv) => {
+    // Convert propertyValue to number if it's a string
+    const value = typeof inv.propertyValue === 'string' 
+      ? parseFloat(inv.propertyValue) 
+      : inv.propertyValue;
+    return sum + (value || 0);
+  }, 0);
 
   return (
     <div className="min-h-screen bg-[#0A0F1C]">
@@ -96,63 +140,13 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Main Options */}
-        <div className="grid md:grid-cols-2 gap-6 mb-12">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative group"
-          >
-            <Link href="/invest">
-              <div className="h-64 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-xl p-6 border border-gray-700/50 backdrop-blur-sm hover:border-blue-500/50 transition-all duration-300">
-                <div className="flex flex-col h-full justify-between">
-                  <div>
-                    <h2 className="text-2xl font-bold text-white mb-2">Invest in Properties</h2>
-                    <p className="text-gray-300">Start your investment journey with fractional real estate ownership</p>
-                  </div>
-                  <div className="flex items-center text-blue-400 group-hover:text-blue-300 transition-colors">
-                    Explore Investment Options
-                    <svg className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                    </svg>
-                  </div>
-                </div>
-              </div>
-            </Link>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="relative group"
-          >
-            <Link href="/rent">
-              <div className="h-64 bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-xl p-6 border border-gray-700/50 backdrop-blur-sm hover:border-purple-500/50 transition-all duration-300">
-                <div className="flex flex-col h-full justify-between">
-                  <div>
-                    <h2 className="text-2xl font-bold text-white mb-2">Rent a Property</h2>
-                    <p className="text-gray-300">Find your perfect home with our curated selection of properties</p>
-                  </div>
-                  <div className="flex items-center text-purple-400 group-hover:text-purple-300 transition-colors">
-                    Browse Rental Properties
-                    <svg className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                    </svg>
-                  </div>
-                </div>
-              </div>
-            </Link>
-          </motion.div>
-        </div>
-
         {/* Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
           {[
-            { title: "Available Properties", value: "124", icon: "🏠" },
-            { title: "Total Investors", value: "3.2K", icon: "👥" },
-            { title: "Average ROI", value: "8.5%", icon: "📈" },
-            { title: "Total Value Locked", value: "$12.5M", icon: "🔒" },
+            { title: "Total Investments", value: investments.length.toString(), icon: "📊" },
+            { title: "Total Value", value: `$${totalValue.toLocaleString()}`, icon: "💰" },
+            { title: "Average ROI", value: `${investments.length > 0 ? (investments.reduce((sum, inv) => sum + inv.expectedReturn, 0) / investments.length).toFixed(1) : '0'}%`, icon: "📈" },
+            { title: "Total Tokens", value: investments.reduce((sum, inv) => sum + inv.tokens, 0).toLocaleString(), icon: "🔑" },
           ].map((stat, index) => (
             <motion.div
               key={index}
@@ -168,70 +162,84 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Featured Properties */}
+        {/* My Investments Section */}
         <div className="mb-8">
-          <h2 className="text-xl font-bold text-white mb-6">Featured Properties</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {[
-              {
-                name: "Luxury Apartment",
-                location: "New York, NY",
-                price: "$500,000",
-                type: "Investment",
-                return: "8.5%",
-                image: "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=500"
-              },
-              {
-                name: "Modern Condo",
-                location: "Miami, FL",
-                price: "$2,500/mo",
-                type: "Rental",
-                availability: "Immediate",
-                image: "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=500"
-              },
-              {
-                name: "Commercial Space",
-                location: "Los Angeles, CA",
-                price: "$750,000",
-                type: "Investment",
-                return: "9.2%",
-                image: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=500"
-              }
-            ].map((property, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-                className="group bg-gray-800/50 backdrop-blur-sm rounded-xl overflow-hidden border border-gray-700/50 hover:border-gray-600/50 transition-all duration-300"
-              >
-                <div className="relative h-48 overflow-hidden">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img 
-                    src={property.image} 
-                    alt={property.name}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                  />
-                  <div className="absolute top-2 right-2 px-3 py-1 rounded-full text-sm font-medium bg-gray-900/80 text-white">
-                    {property.type}
-                  </div>
-                </div>
-                <div className="p-4">
-                  <h3 className="text-white font-semibold mb-1">{property.name}</h3>
-                  <p className="text-gray-400 text-sm mb-2">{property.location}</p>
-                  <div className="flex justify-between items-center">
-                    <p className="text-white font-medium">{property.price}</p>
-                    {property.return && (
-                      <p className="text-green-400">ROI: {property.return}</p>
-                    )}
-                    {property.availability && (
-                      <p className="text-blue-400">{property.availability}</p>
-                    )}
-                  </div>
-                </div>
-              </motion.div>
-            ))}
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-bold text-white">My Investments</h2>
+            <Link 
+              href="/invest"
+              className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-opacity"
+            >
+              New Investment
+            </Link>
           </div>
+          {investmentsLoading ? (
+            <div className="text-gray-400">Loading investments...</div>
+          ) : investments.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {investments.map((investment) => (
+                <motion.div
+                  key={investment.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-gray-800/50 backdrop-blur-sm rounded-xl overflow-hidden border border-gray-700/50"
+                >
+                  <div className="relative h-48 overflow-hidden">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img 
+                      src={investment.imageUrl} 
+                      alt={investment.propertyName}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
+                    <div className="absolute bottom-4 left-4 right-4">
+                      <h3 className="text-white font-semibold text-lg">{investment.propertyName}</h3>
+                      <p className="text-gray-300 text-sm">{investment.location}</p>
+                    </div>
+                  </div>
+                  <div className="p-4">
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <p className="text-gray-400 text-sm">Investment Amount</p>
+                        <p className="text-white font-medium">{investment.amount} ETH</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400 text-sm">Tokens Owned</p>
+                        <p className="text-white font-medium">{investment.tokens.toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400 text-sm">Expected Return</p>
+                        <p className="text-green-400">{investment.expectedReturn}%</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400 text-sm">Property Value</p>
+                        <p className="text-white">${investment.propertyValue.toLocaleString()}</p>
+                      </div>
+                    </div>
+                    <div className="mt-4 pt-4 border-t border-gray-700">
+                      <p className="text-gray-400 text-sm mb-1">Transaction Hash</p>
+                      <p className="text-gray-300 text-sm break-all">
+                        {investment.txHash.slice(0, 6)}...{investment.txHash.slice(-4)}
+                      </p>
+                      <p className="text-gray-400 text-xs mt-2">
+                        Invested on {new Date(investment.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          ) : (
+            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 text-center">
+              <p className="text-gray-400 mb-4">You haven't made any investments yet.</p>
+              <Link 
+                href="/invest"
+                className="inline-block px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-opacity"
+              >
+                Start Investing
+              </Link>
+            </div>
+          )}
         </div>
       </div>
     </div>
