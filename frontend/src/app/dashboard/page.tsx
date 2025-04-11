@@ -2,7 +2,7 @@
 import { UserButton, useUser } from "@clerk/nextjs";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { getUserDetails } from "../../../server/index";
 
 type Investment = {
@@ -20,12 +20,70 @@ type Investment = {
   propertyValue: number;
 };
 
+type GroupedInvestment = {
+  propertyId: string;
+  propertyName: string;
+  location: string;
+  imageUrl: string;
+  totalAmount: number;
+  totalTokens: number;
+  transactions: {
+    amount: string;
+    tokens: number;
+    txHash: string;
+    createdAt: string;
+  }[];
+  expectedReturn: number;
+  propertyValue: number;
+};
+
 export default function Dashboard() {
   const { user } = useUser();
   const [profile, setProfile] = useState<any>(null);
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [loading, setLoading] = useState(true);
   const [investmentsLoading, setInvestmentsLoading] = useState(true);
+
+  // Group investments by property
+  const groupedInvestments = useMemo(() => {
+    const grouped = new Map<string, GroupedInvestment>();
+    
+    investments.forEach(investment => {
+      if (!grouped.has(investment.propertyId)) {
+        grouped.set(investment.propertyId, {
+          propertyId: investment.propertyId,
+          propertyName: investment.propertyName,
+          location: investment.location,
+          imageUrl: investment.imageUrl,
+          totalAmount: 0,
+          totalTokens: 0,
+          transactions: [],
+          expectedReturn: investment.expectedReturn,
+          propertyValue: investment.propertyValue
+        });
+      }
+      
+      const group = grouped.get(investment.propertyId)!;
+      group.totalAmount += parseFloat(investment.amount);
+      group.totalTokens += investment.tokens;
+      group.transactions.push({
+        amount: investment.amount,
+        tokens: investment.tokens,
+        txHash: investment.txHash,
+        createdAt: investment.createdAt
+      });
+    });
+    
+    return Array.from(grouped.values());
+  }, [investments]);
+
+  // Calculate total value properly
+  const totalValue = groupedInvestments.reduce((sum, inv) => {
+    const value = typeof inv.propertyValue === 'string' 
+      ? parseFloat(inv.propertyValue) 
+      : inv.propertyValue;
+    return sum + (value || 0);
+  }, 0);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -61,15 +119,6 @@ export default function Dashboard() {
     fetchProfile();
     fetchInvestments();
   }, [user]);
-
-  // Calculate total value properly
-  const totalValue = investments.reduce((sum, inv) => {
-    // Convert propertyValue to number if it's a string
-    const value = typeof inv.propertyValue === 'string' 
-      ? parseFloat(inv.propertyValue) 
-      : inv.propertyValue;
-    return sum + (value || 0);
-  }, 0);
 
   return (
     <div className="min-h-screen bg-[#0A0F1C]">
@@ -175,11 +224,11 @@ export default function Dashboard() {
           </div>
           {investmentsLoading ? (
             <div className="text-gray-400">Loading investments...</div>
-          ) : investments.length > 0 ? (
+          ) : groupedInvestments.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {investments.map((investment) => (
+              {groupedInvestments.map((investment) => (
                 <motion.div
-                  key={investment.id}
+                  key={investment.propertyId}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="bg-gray-800/50 backdrop-blur-sm rounded-xl overflow-hidden border border-gray-700/50"
@@ -200,12 +249,12 @@ export default function Dashboard() {
                   <div className="p-4">
                     <div className="grid grid-cols-2 gap-4 mb-4">
                       <div>
-                        <p className="text-gray-400 text-sm">Investment Amount</p>
-                        <p className="text-white font-medium">{investment.amount} ETH</p>
+                        <p className="text-gray-400 text-sm">Total Investment</p>
+                        <p className="text-white font-medium">{investment.totalAmount.toFixed(4)} ETH</p>
                       </div>
                       <div>
-                        <p className="text-gray-400 text-sm">Tokens Owned</p>
-                        <p className="text-white font-medium">{investment.tokens.toLocaleString()}</p>
+                        <p className="text-gray-400 text-sm">Total Tokens</p>
+                        <p className="text-white font-medium">{investment.totalTokens.toLocaleString()}</p>
                       </div>
                       <div>
                         <p className="text-gray-400 text-sm">Expected Return</p>
@@ -217,13 +266,19 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <div className="mt-4 pt-4 border-t border-gray-700">
-                      <p className="text-gray-400 text-sm mb-1">Transaction Hash</p>
-                      <p className="text-gray-300 text-sm break-all">
-                        {investment.txHash.slice(0, 6)}...{investment.txHash.slice(-4)}
-                      </p>
-                      <p className="text-gray-400 text-xs mt-2">
-                        Invested on {new Date(investment.createdAt).toLocaleDateString()}
-                      </p>
+                      <p className="text-gray-400 text-sm mb-2">Transaction History</p>
+                      <div className="space-y-2">
+                        {investment.transactions.map((tx, index) => (
+                          <div key={index} className="text-sm">
+                            <p className="text-gray-300">
+                              {tx.amount} ETH ({tx.tokens.toLocaleString()} tokens)
+                            </p>
+                            <p className="text-gray-400 text-xs">
+                              {new Date(tx.createdAt).toLocaleDateString()}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </motion.div>
