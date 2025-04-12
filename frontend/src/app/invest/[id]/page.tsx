@@ -209,6 +209,14 @@ declare global {
   }
 }
 
+// Add this function to convert UUID to numeric value
+function uuidToNumeric(uuid: string): bigint {
+  // Remove hyphens and convert to hex
+  const hex = uuid.replace(/-/g, '');
+  // Convert hex to BigInt
+  return BigInt('0x' + hex);
+}
+
 export default function PropertyInvestmentPage({ params }: { params: { id: string } }) {
   const { isSignedIn, user } = useUser();
   const router = useRouter();
@@ -341,11 +349,8 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
         throw new Error('Please enter a valid number of tokens');
       }
 
-      // Convert property ID to number
-      const propertyId = parseInt(params.id);
-      if (isNaN(propertyId)) {
-        throw new Error('Invalid property ID');
-      }
+      // Convert UUID to numeric value for the contract
+      const propertyId = uuidToNumeric(params.id);
 
       // Calculate investment amount based on token price
       const tokenPrice = ethers.parseEther('0.01'); // Example: 0.01 ETH per token
@@ -434,7 +439,7 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
 
           // Update the property's available tokens
           try {
-            const updateResponse = await fetch(`/api/properties/${propertyId}`, {
+            const updateResponse = await fetch(`/api/properties/${params.id}`, {
               method: 'PATCH',
               headers: {
                 'Content-Type': 'application/json',

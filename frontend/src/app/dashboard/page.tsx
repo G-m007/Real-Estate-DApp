@@ -52,6 +52,20 @@ type Transaction = {
   propertyValue: number;
 };
 
+type SellOrder = {
+  id: string;
+  property_id: string;
+  tokens: number;
+  price_per_token: number;
+  status: string;
+  order_status: string;
+  created_at: string;
+  property_name: string;
+  location: string;
+  image_url: string;
+  buyer_id: string | null;
+};
+
 export default function Dashboard() {
   const { user } = useUser();
   const [profile, setProfile] = useState<any>(null);
@@ -62,6 +76,8 @@ export default function Dashboard() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [showTransactions, setShowTransactions] = useState(false);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
+  const [sellOrders, setSellOrders] = useState<SellOrder[]>([]);
+  const [loadingSellOrders, setLoadingSellOrders] = useState(true);
 
   // Group investments by property
   const groupedInvestments = useMemo(() => {
@@ -138,8 +154,26 @@ export default function Dashboard() {
       }
     };
 
+    const fetchSellOrders = async () => {
+      if (user?.id) {
+        try {
+          const response = await fetch(`/api/sell-orders?user_id=${user.id}`);
+          const data = await response.json();
+          
+          if (data.success) {
+            setSellOrders(data.sellOrders);
+          }
+        } catch (error) {
+          console.error("Error fetching sell orders:", error);
+        } finally {
+          setLoadingSellOrders(false);
+        }
+      }
+    };
+
     fetchProfile();
     fetchInvestments();
+    fetchSellOrders();
   }, [user]);
 
   const fetchTransactions = async (propertyId: string) => {
@@ -256,12 +290,22 @@ export default function Dashboard() {
         <div className="mb-8">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-bold text-white">My Investments</h2>
-            <Link 
-              href="/invest"
-              className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-opacity"
-            >
-              New Investment
-            </Link>
+            <div className="flex gap-4">
+              <Link 
+                href="/invest"
+                className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-opacity"
+              >
+                New Investment
+              </Link>
+              {groupedInvestments.length > 0 && (
+                <Link 
+                  href="/sell"
+                  className="px-4 py-2 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-lg hover:opacity-90 transition-opacity"
+                >
+                  Sell Tokens
+                </Link>
+              )}
+            </div>
           </div>
           {investmentsLoading ? (
             <div className="text-gray-400">Loading investments...</div>
@@ -353,6 +397,106 @@ export default function Dashboard() {
               >
                 Start Investing
               </Link>
+            </div>
+          )}
+        </div>
+
+        {/* Sell Orders Section */}
+        <div className="mb-8">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-bold text-white">My Sell Orders</h2>
+            {investments.length > 0 && (
+              <Link 
+                href="/sell"
+                className="px-4 py-2 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-lg hover:opacity-90 transition-opacity"
+              >
+                Create Sell Order
+              </Link>
+            )}
+          </div>
+          {loadingSellOrders ? (
+            <div className="text-gray-400">Loading sell orders...</div>
+          ) : sellOrders.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {sellOrders.map((order) => (
+                <motion.div
+                  key={order.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`bg-gray-800/50 backdrop-blur-sm rounded-xl overflow-hidden border ${
+                    order.order_status === 'OPEN' ? 'border-yellow-500/50' :
+                    order.order_status === 'COMPLETED' ? 'border-green-500/50' :
+                    'border-red-500/50'
+                  }`}
+                >
+                  <div className="relative h-48 overflow-hidden">
+                    <img 
+                      src={order.image_url} 
+                      alt={order.property_name}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
+                    <div className="absolute bottom-4 left-4 right-4">
+                      <h3 className="text-white font-semibold text-lg">{order.property_name}</h3>
+                      <p className="text-gray-300 text-sm">{order.location}</p>
+                    </div>
+                  </div>
+                  <div className="p-4">
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <p className="text-gray-400 text-sm">Tokens for Sale</p>
+                        <p className="text-white font-medium">{order.tokens.toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400 text-sm">Price Per Token</p>
+                        <p className="text-white font-medium">${order.price_per_token.toFixed(2)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400 text-sm">Total Value</p>
+                        <p className="text-white font-medium">
+                          ${(order.tokens * order.price_per_token).toLocaleString()}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400 text-sm">Status</p>
+                        <p className={`font-medium ${
+                          order.order_status === 'OPEN' ? 'text-yellow-400' :
+                          order.order_status === 'COMPLETED' ? 'text-green-400' :
+                          'text-red-400'
+                        }`}>
+                          {order.order_status}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-4 pt-4 border-t border-gray-700">
+                      <p className="text-gray-400 text-sm">Created</p>
+                      <p className="text-white text-sm">
+                        {new Date(order.created_at).toLocaleDateString()}
+                      </p>
+                      {order.buyer_id && (
+                        <div className="mt-2">
+                          <p className="text-gray-400 text-sm">Buyer</p>
+                          <p className="text-white text-sm">
+                            {order.buyer_id.slice(0, 6)}...{order.buyer_id.slice(-4)}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          ) : (
+            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 text-center">
+              <p className="text-gray-400 mb-4">You haven't created any sell orders yet.</p>
+              {investments.length > 0 && (
+                <Link 
+                  href="/sell"
+                  className="inline-block px-4 py-2 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-lg hover:opacity-90 transition-opacity"
+                >
+                  Create Sell Order
+                </Link>
+              )}
             </div>
           )}
         </div>

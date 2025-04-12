@@ -12,6 +12,7 @@ contract PropertyInvestment {
 
     mapping(uint256 => Investment) public investments;
     mapping(address => uint256[]) public investorProperties;
+    mapping(address => mapping(uint256 => uint256)) public userPropertyTokens;
     uint256 public investmentCount;
 
     event InvestmentMade(
@@ -19,6 +20,13 @@ contract PropertyInvestment {
         address indexed investor,
         uint256 indexed propertyId,
         uint256 amount,
+        uint256 tokens
+    );
+
+    event TokensTransferred(
+        address indexed from,
+        address indexed to,
+        uint256 indexed propertyId,
         uint256 tokens
     );
 
@@ -40,6 +48,7 @@ contract PropertyInvestment {
         });
 
         investorProperties[msg.sender].push(propertyId);
+        userPropertyTokens[msg.sender][propertyId] += tokens;
 
         // Emit event with all parameters
         emit InvestmentMade(
@@ -83,5 +92,49 @@ contract PropertyInvestment {
     ) external view returns (uint256[] memory) {
         require(investor != address(0), "Invalid investor address");
         return investorProperties[investor];
+    }
+
+    // Get user's token balance for a specific property
+    function getUserPropertyTokens(
+        address user,
+        uint256 propertyId
+    ) external view returns (uint256) {
+        require(user != address(0), "Invalid user address");
+        require(propertyId > 0, "Invalid property ID");
+        return userPropertyTokens[user][propertyId];
+    }
+
+    // Transfer tokens between users
+    function transferPropertyTokens(
+        address from,
+        address to,
+        uint256 propertyId,
+        uint256 tokens
+    ) external {
+        require(from != address(0), "Invalid sender address");
+        require(to != address(0), "Invalid recipient address");
+        require(propertyId > 0, "Invalid property ID");
+        require(tokens > 0, "Token amount must be greater than 0");
+        require(
+            userPropertyTokens[from][propertyId] >= tokens,
+            "Insufficient tokens"
+        );
+
+        userPropertyTokens[from][propertyId] -= tokens;
+        userPropertyTokens[to][propertyId] += tokens;
+
+        // Add property to recipient's list if they don't already have it
+        bool hasProperty = false;
+        for (uint256 i = 0; i < investorProperties[to].length; i++) {
+            if (investorProperties[to][i] == propertyId) {
+                hasProperty = true;
+                break;
+            }
+        }
+        if (!hasProperty) {
+            investorProperties[to].push(propertyId);
+        }
+
+        emit TokensTransferred(from, to, propertyId, tokens);
     }
 }
