@@ -27,6 +27,7 @@ type GroupedInvestment = {
   imageUrl: string;
   totalAmount: number;
   totalTokens: number;
+  propertyTotalTokens: number;
   transactions: {
     amount: string;
     tokens: number;
@@ -37,12 +38,30 @@ type GroupedInvestment = {
   propertyValue: number;
 };
 
+type Transaction = {
+  id: string;
+  amount: string;
+  tokens: number;
+  txHash: string;
+  walletAddress: string;
+  createdAt: string;
+  propertyName: string;
+  location: string;
+  imageUrl: string;
+  expectedReturn: number;
+  propertyValue: number;
+};
+
 export default function Dashboard() {
   const { user } = useUser();
   const [profile, setProfile] = useState<any>(null);
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [loading, setLoading] = useState(true);
   const [investmentsLoading, setInvestmentsLoading] = useState(true);
+  const [selectedProperty, setSelectedProperty] = useState<GroupedInvestment | null>(null);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [showTransactions, setShowTransactions] = useState(false);
+  const [loadingTransactions, setLoadingTransactions] = useState(false);
 
   // Group investments by property
   const groupedInvestments = useMemo(() => {
@@ -57,6 +76,7 @@ export default function Dashboard() {
           imageUrl: investment.imageUrl,
           totalAmount: 0,
           totalTokens: 0,
+          propertyTotalTokens: 0,
           transactions: [],
           expectedReturn: investment.expectedReturn,
           propertyValue: investment.propertyValue
@@ -66,6 +86,7 @@ export default function Dashboard() {
       const group = grouped.get(investment.propertyId)!;
       group.totalAmount += parseFloat(investment.amount);
       group.totalTokens += investment.tokens;
+      group.propertyTotalTokens += investment.tokens;
       group.transactions.push({
         amount: investment.amount,
         tokens: investment.tokens,
@@ -79,10 +100,11 @@ export default function Dashboard() {
 
   // Calculate total value properly
   const totalValue = groupedInvestments.reduce((sum, inv) => {
-    const value = typeof inv.propertyValue === 'string' 
-      ? parseFloat(inv.propertyValue) 
-      : inv.propertyValue;
-    return sum + (value || 0);
+    // Calculate the value of one token for this property
+    const tokenValue = inv.propertyValue / inv.propertyTotalTokens;
+    // Calculate the total value of the user's tokens
+    const investmentValue = tokenValue * inv.totalTokens;
+    return sum + investmentValue;
   }, 0);
 
   useEffect(() => {
@@ -119,6 +141,25 @@ export default function Dashboard() {
     fetchProfile();
     fetchInvestments();
   }, [user]);
+
+  const fetchTransactions = async (propertyId: string) => {
+    if (!user?.id) return;
+    
+    try {
+      setLoadingTransactions(true);
+      const response = await fetch(`/api/investments/transactions?property_id=${propertyId}&user_id=${user.id}`);
+      const data = await response.json();
+      
+      if (data.success) {
+        setTransactions(data.transactions);
+        setShowTransactions(true);
+      }
+    } catch (error) {
+      console.error('Error fetching transactions:', error);
+    } finally {
+      setLoadingTransactions(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#0A0F1C]">
@@ -193,7 +234,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
           {[
             { title: "Total Investments", value: investments.length.toString(), icon: "📊" },
-            { title: "Total Value", value: `$${totalValue.toLocaleString()}`, icon: "💰" },
+            { title: "Total Investment Value", value: `$${totalValue.toLocaleString()}`, icon: "💰" },
             { title: "Average ROI", value: `${investments.length > 0 ? (investments.reduce((sum, inv) => sum + inv.expectedReturn, 0) / investments.length).toFixed(1) : '0'}%`, icon: "📈" },
             { title: "Total Tokens", value: investments.reduce((sum, inv) => sum + inv.tokens, 0).toLocaleString(), icon: "🔑" },
           ].map((stat, index) => (
@@ -249,12 +290,20 @@ export default function Dashboard() {
                   <div className="p-4">
                     <div className="grid grid-cols-2 gap-4 mb-4">
                       <div>
-                        <p className="text-gray-400 text-sm">Total Investment</p>
-                        <p className="text-white font-medium">{investment.totalAmount.toFixed(4)} ETH</p>
+                        <p className="text-gray-400 text-sm">Total Investment Value</p>
+                        <p className="text-white font-medium">
+                          ${((investment.propertyValue / investment.propertyTotalTokens) * investment.totalTokens).toLocaleString()}
+                        </p>
+                        <p className="text-gray-400 text-xs">
+                          (${(investment.propertyValue / investment.propertyTotalTokens).toFixed(2)} per token)
+                        </p>
                       </div>
                       <div>
-                        <p className="text-gray-400 text-sm">Total Tokens</p>
+                        <p className="text-gray-400 text-sm">Your Tokens</p>
                         <p className="text-white font-medium">{investment.totalTokens.toLocaleString()}</p>
+                        <p className="text-gray-400 text-xs">
+                          of {investment.propertyTotalTokens.toLocaleString()} total tokens
+                        </p>
                       </div>
                       <div>
                         <p className="text-gray-400 text-sm">Expected Return</p>
@@ -266,7 +315,18 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <div className="mt-4 pt-4 border-t border-gray-700">
-                      <p className="text-gray-400 text-sm mb-2">Transaction History</p>
+                      <div className="flex justify-between items-center mb-2">
+                        <p className="text-gray-400 text-sm">Transaction History</p>
+                        <button
+                          onClick={() => {
+                            setSelectedProperty(investment);
+                            fetchTransactions(investment.propertyId);
+                          }}
+                          className="text-blue-400 hover:text-blue-300 text-sm"
+                        >
+                          View Details
+                        </button>
+                      </div>
                       <div className="space-y-2">
                         {investment.transactions.map((tx, index) => (
                           <div key={index} className="text-sm">
@@ -297,6 +357,77 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Transaction Details Modal */}
+      {showTransactions && selectedProperty && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gray-800/90 rounded-xl p-6 max-w-2xl w-full mx-4 border border-gray-700/50">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-white">Transaction Details</h3>
+              <button
+                onClick={() => {
+                  setShowTransactions(false);
+                  setSelectedProperty(null);
+                  setTransactions([]);
+                }}
+                className="text-gray-400 hover:text-white"
+              >
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mb-6">
+              <h4 className="text-lg font-semibold text-white mb-2">{selectedProperty.propertyName}</h4>
+              <p className="text-gray-400">{selectedProperty.location}</p>
+            </div>
+
+            {loadingTransactions ? (
+              <div className="flex justify-center items-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+              </div>
+            ) : transactions.length > 0 ? (
+              <div className="space-y-4">
+                {transactions.map((tx) => (
+                  <div key={tx.id} className="bg-gray-700/50 rounded-lg p-4">
+                    <div className="grid grid-cols-2 gap-4 mb-2">
+                      <div>
+                        <p className="text-gray-400 text-sm">Amount</p>
+                        <p className="text-white">{tx.amount} ETH</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400 text-sm">Tokens</p>
+                        <p className="text-white">{tx.tokens.toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400 text-sm">Date</p>
+                        <p className="text-white">{new Date(tx.createdAt).toLocaleDateString()}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400 text-sm">Transaction Hash</p>
+                        <p className="text-white font-mono text-sm break-all">
+                          {tx.txHash.slice(0, 6)}...{tx.txHash.slice(-4)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      <p className="text-gray-400 text-sm">Wallet Address</p>
+                      <p className="text-white font-mono text-sm">
+                        {tx.walletAddress.slice(0, 6)}...{tx.walletAddress.slice(-4)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-gray-400">
+                No transaction details found
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 } 

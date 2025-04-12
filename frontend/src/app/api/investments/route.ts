@@ -25,10 +25,26 @@ export async function POST(request: Request) {
     await sql`BEGIN`;
 
     try {
-      // Verify the property exists
+      // Check if transaction already exists
+      const existingTx = await sql`
+        SELECT id FROM investments 
+        WHERE tx_hash = ${tx_hash}
+      `;
+
+      if (existingTx && existingTx.length > 0) {
+        console.log('Transaction already exists:', tx_hash);
+        await sql`ROLLBACK`;
+        return NextResponse.json({
+          success: true,
+          message: 'Transaction already recorded',
+          data: existingTx[0]
+        });
+      }
+
+      // Verify the property exists and get current available tokens
       console.log('Verifying property with ID:', property_id);
       const property = await sql`
-        SELECT id FROM properties 
+        SELECT id, available_tokens FROM properties 
         WHERE id = ${property_id}
       `;
 
@@ -41,6 +57,12 @@ export async function POST(request: Request) {
         `;
         console.log('All available properties:', allProperties);
         throw new Error(`Property not found. Available properties: ${JSON.stringify(allProperties)}`);
+      }
+
+      // Check if there are enough available tokens
+      const currentAvailableTokens = property[0].available_tokens;
+      if (currentAvailableTokens < tokens) {
+        throw new Error(`Not enough available tokens. Available: ${currentAvailableTokens}, Requested: ${tokens}`);
       }
 
       // Insert investment record with the property UUID
@@ -67,12 +89,25 @@ export async function POST(request: Request) {
 
       console.log('Investment recorded successfully:', response);
 
+      // Update available tokens in the properties table
+      const newAvailableTokens = currentAvailableTokens - tokens;
+      await sql`
+        UPDATE properties 
+        SET available_tokens = ${newAvailableTokens}
+        WHERE id = ${property_id}
+      `;
+
+      console.log('Updated available tokens:', newAvailableTokens);
+
       // Commit transaction
       await sql`COMMIT`;
 
       return NextResponse.json({
         success: true,
-        data: response[0]
+        data: {
+          ...response[0],
+          newAvailableTokens
+        }
       });
     } catch (error) {
       // Rollback transaction on error
@@ -93,10 +128,10 @@ export async function POST(request: Request) {
 // GET /api/investments - Get all investments for a user
 export async function GET(request: Request) {
   const sql = neon(process.env.NEXT_PUBLIC_DATABASE_URL!);
+  const { searchParams } = new URL(request.url);
   
   try {
-    const url = new URL(request.url);
-    const userId = url.searchParams.get('user_id');
+    const userId = searchParams.get('user_id');
 
     if (!userId) {
       return NextResponse.json({
@@ -105,40 +140,39 @@ export async function GET(request: Request) {
       }, { status: 400 });
     }
 
-    // Get investments with property details
+    // Get all investments for this user with property details
     const investments = await sql`
       SELECT 
         i.*,
         p.name as property_name,
         p.location,
         p.images,
-        p.price,
-        p.expected_return
+        p.expected_return,
+        p.price as property_value,
+        p.total_tokens as property_total_tokens
       FROM investments i
       JOIN properties p ON i.property_id = p.id
       WHERE i.user_id = ${userId}
       ORDER BY i.created_at DESC
     `;
 
-    // Format the investments for the frontend
-    const formattedInvestments = investments.map(investment => ({
-      id: investment.id,
-      propertyId: investment.property_id,
-      propertyName: investment.property_name,
-      location: investment.location,
-      imageUrl: investment.images[0] || '',
-      amount: investment.amount,
-      tokens: investment.tokens,
-      txHash: investment.tx_hash,
-      walletAddress: investment.wallet_address,
-      createdAt: investment.created_at,
-      expectedReturn: investment.expected_return,
-      propertyValue: investment.price
-    }));
-
     return NextResponse.json({
       success: true,
-      investments: formattedInvestments
+      investments: investments.map(inv => ({
+        id: inv.id,
+        propertyId: inv.property_id,
+        propertyName: inv.property_name,
+        location: inv.location,
+        imageUrl: inv.images[0] || '',
+        amount: inv.amount,
+        tokens: inv.tokens,
+        txHash: inv.tx_hash,
+        walletAddress: inv.wallet_address,
+        createdAt: inv.created_at,
+        expectedReturn: inv.expected_return,
+        propertyValue: inv.property_value,
+        propertyTotalTokens: inv.property_total_tokens
+      }))
     });
 
   } catch (error: any) {

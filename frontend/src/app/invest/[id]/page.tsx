@@ -144,6 +144,7 @@ type Property = {
   tokenAddress: string;
   propertyType: string;
   availableTokens: number;
+  tokenValue: number;
 };
 
 // Transaction confirmation modal component
@@ -630,21 +631,44 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-gray-400 text-sm mb-1">Total Value</p>
-                    <p className="text-white font-medium">${property?.totalValue?.toLocaleString() || '0'}</p>
+                    <p className="text-white font-medium">${property.totalValue.toLocaleString()}</p>
                   </div>
                   <div>
                     <p className="text-gray-400 text-sm mb-1">Expected Return</p>
-                    <p className="text-green-400 font-medium">{property?.expectedReturn || 0}%</p>
+                    <p className="text-green-400 font-medium">{property.expectedReturn}%</p>
                   </div>
                   <div>
-                    <p className="text-gray-400 text-sm mb-1">Available Tokens</p>
-                    <p className="text-white font-medium">{property?.availableTokens?.toLocaleString() || '0'}</p>
+                    <p className="text-gray-400 text-sm mb-1">Total Tokens</p>
+                    <p className="text-white font-medium">{property.totalShares.toLocaleString()}</p>
                   </div>
                   <div>
-                    <p className="text-gray-400 text-sm mb-1">Share Price</p>
-                    <p className="text-white font-medium">${property?.sharePrice || '0'}</p>
+                    <p className="text-gray-400 text-sm mb-1">Token Value</p>
+                    <p className="text-white font-medium">${property.tokenValue.toFixed(2)}</p>
                   </div>
                 </div>
+
+                {/* Investment Progress */}
+                <div className="mt-6">
+                  <div className="flex justify-between items-center mb-2">
+                    <p className="text-gray-400 text-sm">Investment Progress</p>
+                    <p className="text-white text-sm">
+                      {property.sharesIssued.toLocaleString()} / {property.totalShares.toLocaleString()} tokens
+                    </p>
+                  </div>
+                  <div className="w-full bg-gray-700 rounded-full h-2.5">
+                    <div 
+                      className="bg-gradient-to-r from-blue-500 to-purple-500 h-2.5 rounded-full" 
+                      style={{ 
+                        width: `${((property.sharesIssued) / (property.totalShares)) * 100}%` 
+                      }}
+                    ></div>
+                  </div>
+                  <div className="flex justify-between items-center mt-2">
+                    <p className="text-gray-400 text-sm">Available Tokens</p>
+                    <p className="text-white text-sm">{property.availableTokens.toLocaleString()}</p>
+                  </div>
+                </div>
+
                 <div className="mt-4">
                   <p className="text-gray-400 text-sm mb-2">Description</p>
                   <p className="text-white">{property.description}</p>
@@ -670,7 +694,7 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
                 <div className="space-y-6">
                   <div>
                     <label className="block text-gray-400 text-sm mb-2">
-                      Investment Amount (ETH)
+                      Number of Tokens
                     </label>
                     <input
                       type="number"
@@ -687,7 +711,7 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
                       className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
                     />
                     <p className="mt-2 text-sm text-gray-400">
-                      Minimum investment: {property.minInvestment} ETH
+                      Available tokens: {property.availableTokens.toLocaleString()}
                     </p>
                   </div>
 
@@ -695,27 +719,33 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
                     <h3 className="text-white font-medium mb-2">Investment Summary</h3>
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-gray-400">Amount</span>
-                        <span className="text-white">{tokens || '0'} ETH</span>
+                        <span className="text-gray-400">Tokens to Purchase</span>
+                        <span className="text-white">{tokens || '0'}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-400">Shares to Receive</span>
+                        <span className="text-gray-400">Token Value</span>
                         <span className="text-white">
-                          {Math.floor(Number(tokens || 0) / Number(property?.sharePrice || 1)).toLocaleString()}
+                          ${property.tokenValue.toFixed(2)} per token
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Investment Amount</span>
+                        <span className="text-white">
+                          ${(Number(tokens || 0) * property.tokenValue).toFixed(2)}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-400">Expected Annual Return</span>
-                        <span className="text-green-400">{property?.expectedReturn || 0}%</span>
+                        <span className="text-green-400">{property.expectedReturn}%</span>
                       </div>
                     </div>
                   </div>
 
                   <button
                     onClick={handleInvest}
-                    disabled={investing || !tokens || parseInt(tokens) > (property?.availableTokens || 0)}
+                    disabled={investing || !tokens || parseInt(tokens) > (property.availableTokens)}
                     className={`w-full px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed ${
-                      investing || !tokens || parseInt(tokens) > (property?.availableTokens || 0)
+                      investing || !tokens || parseInt(tokens) > (property.availableTokens)
                         ? 'bg-blue-500/50 cursor-not-allowed'
                         : 'bg-blue-500 hover:bg-blue-600'
                     }`}
@@ -758,4 +788,4 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
       />
     </div>
   );
-} 
+}

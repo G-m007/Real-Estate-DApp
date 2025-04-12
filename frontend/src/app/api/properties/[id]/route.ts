@@ -9,9 +9,7 @@ export async function GET(
   const sql = neon(process.env.NEXT_PUBLIC_DATABASE_URL!);
   
   try {
-    // Get the ID from the URL
-    const url = new URL(request.url);
-    const id = url.pathname.split('/').pop();
+    const id = params.id;
 
     if (!id) {
       return NextResponse.json({
@@ -20,9 +18,23 @@ export async function GET(
       }, { status: 400 });
     }
 
+    // Get property with total invested tokens
     const property = await sql`
-      SELECT * FROM properties 
-      WHERE id = ${id}
+      WITH investment_totals AS (
+        SELECT 
+          property_id,
+          SUM(tokens) as total_invested_tokens
+        FROM investments
+        GROUP BY property_id
+      )
+      SELECT 
+        p.*,
+        COALESCE(it.total_invested_tokens, 0) as shares_issued,
+        (p.total_tokens - COALESCE(it.total_invested_tokens, 0)) as available_tokens,
+        CAST((p.price / p.total_tokens) AS NUMERIC) as token_value
+      FROM properties p
+      LEFT JOIN investment_totals it ON p.id = it.property_id
+      WHERE p.id = ${id}::uuid
     `;
 
     if (!property || property.length === 0) {
@@ -39,17 +51,18 @@ export async function GET(
       location: property[0].location,
       imageUrl: property[0].images[0] || '',
       images: property[0].images || [],
-      totalValue: property[0].price,
-      totalShares: property[0].total_tokens,
-      sharesIssued: property[0].total_tokens - property[0].available_tokens,
+      totalValue: Number(property[0].price),
+      totalShares: Number(property[0].total_tokens),
+      sharesIssued: Number(property[0].shares_issued),
+      availableTokens: Number(property[0].available_tokens),
       active: property[0].status === 'LISTED',
-      minInvestment: (property[0].price / property[0].total_tokens).toFixed(6),
-      sharePrice: (property[0].price / property[0].total_tokens).toFixed(6),
+      minInvestment: (Number(property[0].price) / Number(property[0].total_tokens)).toFixed(6),
+      sharePrice: (Number(property[0].price) / Number(property[0].total_tokens)).toFixed(6),
       description: property[0].description,
-      expectedReturn: property[0].expected_return,
+      expectedReturn: Number(property[0].expected_return),
       tokenAddress: property[0].token_address,
       propertyType: property[0].property_type,
-      availableTokens: property[0].available_tokens
+      tokenValue: Number(property[0].token_value)
     };
 
     return NextResponse.json({
@@ -58,7 +71,7 @@ export async function GET(
     });
 
   } catch (error: any) {
-    console.error('Database error:', error);
+    console.error('Error fetching property:', error);
     return NextResponse.json({
       success: false,
       error: error.message || 'Failed to fetch property',
@@ -98,7 +111,7 @@ export async function PATCH(
       const updatedProperty = await sql`
         UPDATE properties 
         SET available_tokens = ${body.available_tokens}
-        WHERE id = ${id}
+        WHERE id = ${id}::uuid
         RETURNING *
       `;
 
