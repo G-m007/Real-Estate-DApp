@@ -1,56 +1,60 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
 
-const sql = neon(process.env.NEXT_PUBLIC_DATABASE_URL!);
-
-export async function POST(request: Request) {
+// POST endpoint to create a new sell order
+export async function POST(req: NextRequest) {
   try {
-    const { user_id, property_id, tokens, price_per_token, status = 'PENDING' } = await request.json();
+    const sql = neon(process.env.NEXT_PUBLIC_DATABASE_URL!);
+    const body = await req.json();
+    const { property_id, user_id, tokens, price_per_token, wallet_address, tx_hash } = body;
 
     // Validate required fields
-    if (!user_id || !property_id || !tokens || !price_per_token) {
+    if (!property_id || !user_id || !tokens || !price_per_token || !wallet_address || !tx_hash) {
       return NextResponse.json({
         success: false,
         error: 'Missing required fields'
       }, { status: 400 });
     }
 
-    // Create sell order
-    const sellOrder = await sql`
+    // Insert the sell order
+    const response = await sql`
       INSERT INTO sell_orders (
-        user_id,
         property_id,
+        user_id,
         tokens,
         price_per_token,
-        status,
-        buyer_id
+        wallet_address,
+        tx_hash,
+        status
       ) VALUES (
+        ${property_id},
         ${user_id},
-        ${property_id}::uuid,
         ${tokens},
         ${price_per_token},
-        ${status},
-        NULL
+        ${wallet_address},
+        ${tx_hash},
+        'OPEN'
       ) RETURNING *
     `;
 
     return NextResponse.json({
       success: true,
-      sellOrder: sellOrder[0]
+      sellOrder: response[0]
     });
-
   } catch (error: any) {
     console.error('Error creating sell order:', error);
     return NextResponse.json({
       success: false,
-      error: error.message
+      error: error.message || 'Failed to create sell order'
     }, { status: 500 });
   }
 }
 
-export async function GET(request: Request) {
+// GET endpoint to fetch sell orders
+export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
+    const sql = neon(process.env.NEXT_PUBLIC_DATABASE_URL!);
+    const { searchParams } = new URL(req.url);
     const user_id = searchParams.get('user_id');
     const property_id = searchParams.get('property_id');
 
@@ -58,46 +62,33 @@ export async function GET(request: Request) {
       SELECT 
         so.*,
         p.name as property_name,
-        p.location,
-        p.images[0] as image_url,
-        CASE 
-          WHEN so.buyer_id IS NOT NULL THEN 'COMPLETED'
-          WHEN so.status = 'CANCELLED' THEN 'CANCELLED'
-          ELSE 'OPEN'
-        END as order_status
+        p.location
       FROM sell_orders so
       JOIN properties p ON so.property_id = p.id
+      WHERE 1=1
     `;
 
     if (user_id) {
-      query = sql`${query} WHERE so.user_id = ${user_id}`;
+      query = sql`${query} AND so.user_id = ${user_id}`;
     }
 
     if (property_id) {
-      query = sql`${query} ${user_id ? 'AND' : 'WHERE'} so.property_id = ${property_id}::uuid`;
+      query = sql`${query} AND so.property_id = ${property_id}`;
     }
 
     query = sql`${query} ORDER BY so.created_at DESC`;
 
     const sellOrders = await query;
 
-    // Format the sell orders to ensure numeric fields are proper numbers
-    const formattedSellOrders = sellOrders.map(order => ({
-      ...order,
-      tokens: Number(order.tokens),
-      price_per_token: Number(order.price_per_token)
-    }));
-
     return NextResponse.json({
       success: true,
-      sellOrders: formattedSellOrders
+      sellOrders
     });
-
   } catch (error: any) {
     console.error('Error fetching sell orders:', error);
     return NextResponse.json({
       success: false,
-      error: error.message
+      error: error.message || 'Failed to fetch sell orders'
     }, { status: 500 });
   }
 } 

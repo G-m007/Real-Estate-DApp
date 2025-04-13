@@ -4,6 +4,8 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import { useEffect, useState, useMemo } from "react";
 import { getUserDetails } from "../../../server/index";
+import { ethers } from "ethers";
+import { toast } from "react-hot-toast";
 
 type Investment = {
   id: string;
@@ -58,13 +60,81 @@ type SellOrder = {
   tokens: number;
   price_per_token: number;
   status: string;
-  order_status: string;
   created_at: string;
   property_name: string;
   location: string;
   image_url: string;
   buyer_id: string | null;
 };
+
+const PROPERTY_INVESTMENT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+const PROPERTY_SELL_ORDER_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
+
+const PropertySellOrderABI = [
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "getUserSellOrders",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sellOrderId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getSellOrder",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "seller",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "propertyId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "tokens",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "pricePerToken",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "isActive",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint256",
+        "name": "createdAt",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+];
 
 export default function Dashboard() {
   const { user } = useUser();
@@ -155,26 +225,31 @@ export default function Dashboard() {
     };
 
     const fetchSellOrders = async () => {
-      if (user?.id) {
-        try {
-          const response = await fetch(`/api/sell-orders?user_id=${user.id}`);
-          const data = await response.json();
-          
-          if (data.success) {
-            setSellOrders(data.sellOrders);
-          }
-        } catch (error) {
-          console.error("Error fetching sell orders:", error);
-        } finally {
-          setLoadingSellOrders(false);
+      if (!user?.id) return;
+
+      try {
+        setLoadingSellOrders(true);
+        const response = await fetch(`/api/sell-orders?user_id=${user.id}`);
+        const data = await response.json();
+        
+        if (data.success) {
+          console.log('Fetched sell orders from DB:', data.sellOrders);
+          setSellOrders(data.sellOrders);
+        } else {
+          throw new Error(data.error || 'Failed to fetch sell orders');
         }
+      } catch (error) {
+        console.error('Error fetching sell orders:', error);
+        toast.error('Failed to fetch sell orders');
+      } finally {
+        setLoadingSellOrders(false);
       }
     };
 
     fetchProfile();
     fetchInvestments();
     fetchSellOrders();
-  }, [user]);
+  }, [user?.id]);
 
   const fetchTransactions = async (propertyId: string) => {
     if (!user?.id) return;
@@ -417,73 +492,49 @@ export default function Dashboard() {
           {loadingSellOrders ? (
             <div className="text-gray-400">Loading sell orders...</div>
           ) : sellOrders.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="space-y-4">
               {sellOrders.map((order) => (
-                <motion.div
+                <div
                   key={order.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`bg-gray-800/50 backdrop-blur-sm rounded-xl overflow-hidden border ${
-                    order.order_status === 'OPEN' ? 'border-yellow-500/50' :
-                    order.order_status === 'COMPLETED' ? 'border-green-500/50' :
-                    'border-red-500/50'
-                  }`}
+                  className="bg-gray-800/50 backdrop-blur-sm rounded-lg p-4 border border-gray-700/50"
                 >
-                  <div className="relative h-48 overflow-hidden">
-                    <img 
-                      src={order.image_url} 
-                      alt={order.property_name}
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
-                    <div className="absolute bottom-4 left-4 right-4">
-                      <h3 className="text-white font-semibold text-lg">{order.property_name}</h3>
-                      <p className="text-gray-300 text-sm">{order.location}</p>
-                    </div>
-                  </div>
-                  <div className="p-4">
-                    <div className="grid grid-cols-2 gap-4 mb-4">
-                      <div>
-                        <p className="text-gray-400 text-sm">Tokens for Sale</p>
-                        <p className="text-white font-medium">{order.tokens.toLocaleString()}</p>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-red-400">Sell</span>
+                        <span className="text-gray-400 text-sm">
+                          {new Date(order.created_at).toLocaleString()}
+                        </span>
                       </div>
-                      <div>
-                        <p className="text-gray-400 text-sm">Price Per Token</p>
-                        <p className="text-white font-medium">${order.price_per_token.toFixed(2)}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-400 text-sm">Total Value</p>
-                        <p className="text-white font-medium">
-                          ${(order.tokens * order.price_per_token).toLocaleString()}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-gray-400 text-sm">Status</p>
-                        <p className={`font-medium ${
-                          order.order_status === 'OPEN' ? 'text-yellow-400' :
-                          order.order_status === 'COMPLETED' ? 'text-green-400' :
-                          'text-red-400'
-                        }`}>
-                          {order.order_status}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-4 pt-4 border-t border-gray-700">
-                      <p className="text-gray-400 text-sm">Created</p>
-                      <p className="text-white text-sm">
-                        {new Date(order.created_at).toLocaleDateString()}
-                      </p>
-                      {order.buyer_id && (
-                        <div className="mt-2">
-                          <p className="text-gray-400 text-sm">Buyer</p>
-                          <p className="text-white text-sm">
-                            {order.buyer_id.slice(0, 6)}...{order.buyer_id.slice(-4)}
-                          </p>
+                      <div className="space-y-1">
+                        <div className="text-gray-400 text-sm">
+                          Unit price: {typeof order.price_per_token === 'number' 
+                            ? order.price_per_token.toFixed(2)
+                            : parseFloat(order.price_per_token).toFixed(2)} 
                         </div>
-                      )}
+                        <div className="text-gray-400 text-sm">
+                          Quantity: {order.tokens.toLocaleString()} 
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-white font-medium mb-1">
+                        {(order.tokens * (typeof order.price_per_token === 'number' 
+                          ? order.price_per_token 
+                          : parseFloat(order.price_per_token))).toLocaleString()} 
+                      </div>
+                      <div className="text-sm">
+                        <span className={`px-2 py-1 rounded text-xs ${
+                          order.status === 'OPEN' ? 'bg-yellow-500/20 text-yellow-400' :
+                          order.status === 'COMPLETED' ? 'bg-green-500/20 text-green-400' :
+                          'bg-red-500/20 text-red-400'
+                        }`}>
+                          {order.status}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </motion.div>
+                </div>
               ))}
             </div>
           ) : (

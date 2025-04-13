@@ -8,7 +8,7 @@ import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { toast, Toaster } from 'react-hot-toast';
 
-// Contract addresses
+// Contract addresses (these match our deployed contracts)
 const PROPERTY_INVESTMENT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 const PROPERTY_SELL_ORDER_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
 
@@ -35,6 +35,184 @@ const PropertySellOrderABI = [
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "getUserSellOrders",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sellOrderId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getSellOrder",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "seller",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "propertyId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "tokens",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "pricePerToken",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "isActive",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint256",
+        "name": "createdAt",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sellOrderId",
+        "type": "uint256"
+      }
+    ],
+    "name": "buyTokens",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sellOrderId",
+        "type": "uint256"
+      }
+    ],
+    "name": "cancelSellOrder",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "sellOrderId",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "seller",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "propertyId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "tokens",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "pricePerToken",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "createdAt",
+        "type": "uint256"
+      }
+    ],
+    "name": "SellOrderCreated",
+    "type": "event"
+  }
+];
+
+const PropertyInvestmentABI = [
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "propertyId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getUserPropertyTokens",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "investor",
+        "type": "address"
+      }
+    ],
+    "name": "getInvestorProperties",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   }
 ];
 
@@ -51,17 +229,31 @@ type Property = {
   userTokens: number;
 };
 
+export type SellOrder = {
+  id: string;
+  property_id: string;
+  user_id: string;
+  tokens: number;
+  price_per_token: string;
+  wallet_address: string;
+  tx_hash: string;
+  status: 'OPEN' | 'CLOSED' | 'CANCELLED';
+  created_at: string;
+};
+
 export default function SellPage() {
   const { isSignedIn, user } = useUser();
   const router = useRouter();
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
-  const [tokensToSell, setTokensToSell] = useState('');
-  const [pricePerToken, setPricePerToken] = useState('');
+  const [tokensToSell, setTokensToSell] = useState<number>(0);
+  const [pricePerToken, setPricePerToken] = useState<string>('');
   const [creating, setCreating] = useState(false);
   const [walletConnected, setWalletConnected] = useState(false);
-  const [walletAddress, setWalletAddress] = useState('');
+  const [walletAddress, setWalletAddress] = useState<string>('');
+  const [error, setError] = useState('');
+  const [signer, setSigner] = useState<ethers.Signer | null>(null);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -69,11 +261,16 @@ export default function SellPage() {
     const fetchUserProperties = async () => {
       try {
         setLoading(true);
+        console.log('Fetching user properties for user:', user.id);
         const response = await fetch(`/api/investments/properties?user_id=${user.id}`);
         const data = await response.json();
         
         if (data.success) {
+          console.log('Fetched properties:', data.properties);
           setProperties(data.properties);
+        } else {
+          console.error('Failed to fetch properties:', data.error);
+          toast.error(data.error || 'Failed to fetch properties');
         }
       } catch (error) {
         console.error('Error fetching properties:', error);
@@ -87,100 +284,119 @@ export default function SellPage() {
   }, [user?.id]);
 
   const connectWallet = async () => {
-    if (typeof window.ethereum === 'undefined') {
-      toast.error('Please install MetaMask to sell tokens');
-      return;
-    }
-
     try {
-      const accounts = await window.ethereum.request({ 
-        method: 'eth_requestAccounts' 
-      });
-
-      setWalletAddress(accounts[0]);
-      setWalletConnected(true);
-      toast.success('Wallet connected successfully');
-
-      window.ethereum.on('accountsChanged', (newAccounts: string[]) => {
-        if (newAccounts.length === 0) {
-          setWalletConnected(false);
-          setWalletAddress('');
-        } else {
-          setWalletAddress(newAccounts[0]);
-        }
-      });
+      if (typeof window.ethereum !== 'undefined') {
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const newSigner = await provider.getSigner();
+        setSigner(newSigner);
+        const address = await newSigner.getAddress();
+        setWalletAddress(address);
+        setWalletConnected(true);
+        toast.success('Wallet connected successfully');
+      }
     } catch (error) {
       console.error('Error connecting wallet:', error);
       toast.error('Failed to connect wallet');
     }
   };
 
-  const handleCreateSellOrder = async () => {
-    if (!selectedProperty || !tokensToSell || !pricePerToken || !user) return;
+  const handleCreateSellOrder = async (propertyId: string, tokensNumber: number, pricePerToken: string) => {
+    if (!signer || !walletAddress) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
 
     try {
       setCreating(true);
+      console.log('Creating sell order for:', {
+        propertyId,
+        tokensNumber,
+        pricePerToken
+      });
 
-      if (!window.ethereum) {
-        throw new Error('Please install MetaMask to sell tokens');
+      // Convert price to Wei
+      const priceInWei = ethers.parseEther(pricePerToken);
+      console.log('Price in Wei:', priceInWei.toString());
+
+      // Convert property ID
+      const propertyIdHex = propertyId.replace(/-/g, '');
+      const propertyIdBigInt = BigInt('0x' + propertyIdHex);
+      console.log('Property ID conversion:', {
+        original: propertyId,
+        hex: propertyIdHex,
+        bigint: propertyIdBigInt.toString()
+      });
+
+      // Check token balance first
+      const propertyInvestmentContract = new ethers.Contract(
+        PROPERTY_INVESTMENT_ADDRESS,
+        PropertyInvestmentABI,
+        signer
+      );
+
+      console.log('Checking token balance for:', {
+        wallet: walletAddress,
+        propertyId: propertyIdBigInt.toString()
+      });
+
+      const balance = await propertyInvestmentContract.getUserPropertyTokens(walletAddress, propertyIdBigInt);
+      console.log('User token balance:', balance.toString());
+
+      if (balance < tokensNumber) {
+        throw new Error(`Contract shows you only have ${balance.toString()} tokens`);
       }
 
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      
-      const contract = new ethers.Contract(
+      // Create sell order contract instance
+      const sellOrderContract = new ethers.Contract(
         PROPERTY_SELL_ORDER_ADDRESS,
         PropertySellOrderABI,
         signer
       );
 
-      const tokensNumber = parseInt(tokensToSell);
-      const priceInWei = ethers.parseEther(pricePerToken);
-      const propertyIdBigInt = BigInt('0x' + selectedProperty.id.replace(/-/g, ''));
+      // Create sell order
+      console.log('Creating sell order with contract:', {
+        propertyId: propertyIdBigInt.toString(),
+        tokensNumber,
+        priceInWei: priceInWei.toString()
+      });
 
-      // Create the sell order
-      const tx = await contract.createSellOrder(
+      const tx = await sellOrderContract.createSellOrder(
         propertyIdBigInt,
         tokensNumber,
-        priceInWei,
-        { gasLimit: 3000000 }
+        priceInWei
       );
 
-      toast.loading('Creating sell order...', { id: 'tx-pending' });
+      console.log('Transaction sent:', tx.hash);
+      await tx.wait();
+      console.log('Transaction confirmed');
 
-      const receipt = await tx.wait();
-      
-      if (receipt.status === 1) {
-        // Record the sell order in the database
-        const sellOrderData = {
-          property_id: selectedProperty.id,
-          user_id: user.id,
+      // Create database record
+      const response = await fetch('/api/sell-orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          property_id: propertyId,
+          user_id: user?.id,
           tokens: tokensNumber,
-          price_per_token: parseFloat(pricePerToken),
-          wallet_address: await signer.getAddress(),
-          tx_hash: tx.hash
-        };
+          price_per_token: pricePerToken,
+          wallet_address: walletAddress,
+          tx_hash: tx.hash,
+          status: 'OPEN'
+        }),
+      });
 
-        const response = await fetch('/api/sell-orders', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(sellOrderData),
-        });
-
+      if (!response.ok) {
         const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to record sell order');
-        }
-
-        toast.success('Sell order created successfully!', { id: 'tx-pending' });
-        router.push('/dashboard');
+        throw new Error(data.error || 'Failed to create sell order in database');
       }
-    } catch (error: any) {
+
+      toast.success('Sell order created successfully!');
+      router.refresh();
+    } catch (error) {
       console.error('Error creating sell order:', error);
-      toast.error(error.message || 'Failed to create sell order', { id: 'tx-pending' });
+      toast.error(error instanceof Error ? error.message : 'Failed to create sell order');
     } finally {
       setCreating(false);
     }
@@ -255,7 +471,7 @@ export default function SellPage() {
                         alt={property.name}
                         className="w-16 h-16 rounded object-cover mr-4"
                       />
-                      <div className="flex-1">
+                      <div className="flex-1 text-left">
                         <h3 className="text-white font-medium">{property.name}</h3>
                         <p className="text-gray-400 text-sm">{property.location}</p>
                         <p className="text-orange-400 text-sm mt-1">
@@ -295,7 +511,7 @@ export default function SellPage() {
                         onChange={(e) => {
                           const value = e.target.value;
                           if (value === '' || /^\d+$/.test(value)) {
-                            setTokensToSell(value);
+                            setTokensToSell(parseInt(value));
                           }
                         }}
                         min="1"
@@ -341,7 +557,7 @@ export default function SellPage() {
                           <span className="text-gray-400">Total Value</span>
                           <span className="text-white">
                             {tokensToSell && pricePerToken
-                              ? `${(parseFloat(tokensToSell) * parseFloat(pricePerToken)).toFixed(8)} ETH`
+                              ? `${(tokensToSell * parseFloat(pricePerToken)).toFixed(8)} ETH`
                               : '0 ETH'}
                           </span>
                         </div>
@@ -349,12 +565,12 @@ export default function SellPage() {
                     </div>
 
                     <button
-                      onClick={handleCreateSellOrder}
+                      onClick={() => handleCreateSellOrder(selectedProperty.id, tokensToSell, pricePerToken)}
                       disabled={
                         creating ||
                         !tokensToSell ||
                         !pricePerToken ||
-                        parseInt(tokensToSell) > selectedProperty.userTokens
+                        tokensToSell > selectedProperty.userTokens
                       }
                       className={`w-full px-4 py-3 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
