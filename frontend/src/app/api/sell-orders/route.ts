@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    // Insert the sell order
+    // Insert the sell order with status 'PENDING'
     const response = await sql`
       INSERT INTO sell_orders (
         property_id,
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
         ${price_per_token},
         ${wallet_address},
         ${tx_hash},
-        'OPEN'
+        'PENDING'
       ) RETURNING *
     `;
 
@@ -43,6 +43,15 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: any) {
     console.error('Error creating sell order:', error);
+    
+    // Check if it's a constraint violation error
+    if (error.message.includes('valid_status')) {
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid status value. Status must be one of: PENDING, COMPLETED, CANCELLED'
+      }, { status: 400 });
+    }
+    
     return NextResponse.json({
       success: false,
       error: error.message || 'Failed to create sell order'
@@ -58,18 +67,25 @@ export async function GET(req: NextRequest) {
     const user_id = searchParams.get('user_id');
     const property_id = searchParams.get('property_id');
 
+    console.log('Fetching sell orders with params:', { user_id, property_id });
+
     let query = sql`
       SELECT 
         so.*,
         p.name as property_name,
-        p.location
+        p.location,
+        p.images
       FROM sell_orders so
       JOIN properties p ON so.property_id = p.id
       WHERE 1=1
     `;
 
     if (user_id) {
+      // If user_id is provided, show all their orders
       query = sql`${query} AND so.user_id = ${user_id}`;
+    } else {
+      // If no user_id, only show pending orders from other users
+      query = sql`${query} AND so.status = 'PENDING'`;
     }
 
     if (property_id) {
@@ -78,11 +94,17 @@ export async function GET(req: NextRequest) {
 
     query = sql`${query} ORDER BY so.created_at DESC`;
 
+    console.log('Executing query for sell orders');
     const sellOrders = await query;
+    console.log('Found sell orders:', sellOrders);
 
     return NextResponse.json({
       success: true,
-      sellOrders
+      sellOrders: sellOrders.map(order => ({
+        ...order,
+        imageUrl: order.images?.[0] || '',
+        price_per_token: parseFloat(order.price_per_token)
+      }))
     });
   } catch (error: any) {
     console.error('Error fetching sell orders:', error);
