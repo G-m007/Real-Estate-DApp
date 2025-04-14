@@ -6,7 +6,7 @@ import { ethers } from 'ethers';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { usePathname, useRouter } from 'next/navigation';
-import { toast, Toaster } from 'react-hot-toast';
+import { getUserDetails } from "../../../../server/index";
 
 // Local Hardhat network contract address
 const CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
@@ -269,7 +269,7 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
 
   const connectWallet = async () => {
     if (typeof window.ethereum === 'undefined') {
-      toast.error('Please install MetaMask to invest');
+      console.error('Please install MetaMask to invest');
       return;
     }
 
@@ -294,17 +294,17 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
       }
 
       setWalletConnected(true);
-      toast.success('Wallet connected successfully');
+      console.log('Wallet connected successfully');
 
       // Listen for account changes
       window.ethereum.on('accountsChanged', (newAccounts: string[]) => {
         if (newAccounts.length === 0) {
           setWalletConnected(false);
           setWalletAddress('');
-          toast.success('Wallet disconnected');
+          console.log('Wallet disconnected');
         } else {
           setWalletAddress(newAccounts[0]);
-          toast.success('Account changed');
+          console.log('Account changed');
         }
       });
 
@@ -314,7 +314,7 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
       });
 
     } catch (error: any) {
-      toast.error('Failed to connect wallet');
+      console.error('Failed to connect wallet');
       console.error('Error connecting wallet:', error);
     }
   };
@@ -330,7 +330,8 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
 
       // Request account access
       if (!window.ethereum) {
-        throw new Error('Please install MetaMask to invest');
+        console.error('Please install MetaMask to invest');
+        return;
       }
 
       await window.ethereum.request({ method: 'eth_requestAccounts' });
@@ -363,8 +364,8 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
         gasLimit: 3000000 // Add explicit gas limit
       });
 
-      // Show transaction pending toast
-      toast.loading('Transaction pending...', { id: 'tx-pending' });
+      // Show transaction pending message
+      console.log('Transaction pending...');
 
       // Wait for transaction to be mined
       const receipt = await tx.wait();
@@ -403,7 +404,7 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
         setTransactionHash(tx.hash);
         setTransactionPending(false);
         setTransactionSuccess(true);
-        toast.success('Investment successful!', { id: 'tx-pending' });
+        console.log('Investment successful!');
 
         // Record the investment in your backend
         try {
@@ -468,14 +469,14 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
 
           } catch (err) {
             console.error('Property update error:', err);
-            toast.error('Investment recorded but property update failed. Please contact support.');
+            console.error('Investment recorded but property update failed. Please contact support.');
           }
 
           // Show success modal
           setShowSuccessModal(true);
         } catch (err) {
           console.error('Database update error:', err);
-          toast.error('Investment recorded on blockchain but database update failed. Please contact support.');
+          console.error('Investment recorded on blockchain but database update failed. Please contact support.');
         }
       } else {
         throw new Error('Transaction failed');
@@ -485,7 +486,7 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
       setTransactionPending(false);
       setTransactionSuccess(false);
       console.error(err);
-      toast.error(err.message || 'Investment failed', { id: 'tx-pending' });
+      console.error(err.message || 'Investment failed');
     } finally {
       setInvesting(false);
     }
@@ -779,18 +780,6 @@ export default function PropertyInvestmentPage({ params }: { params: { id: strin
       />
 
       <SuccessModal />
-
-      {/* Toast Notifications */}
-      <Toaster 
-        position="bottom-center"
-        toastOptions={{
-          style: {
-            background: '#1F2937',
-            color: '#fff',
-            border: '1px solid #374151'
-          }
-        }}
-      />
     </div>
   );
 }

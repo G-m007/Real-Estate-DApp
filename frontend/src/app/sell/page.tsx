@@ -6,7 +6,7 @@ import { ethers } from 'ethers';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import { toast, Toaster } from 'react-hot-toast';
+import { getUserDetails } from "../../../server/index";
 
 // Contract addresses (these match our deployed contracts)
 const PROPERTY_INVESTMENT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
@@ -132,7 +132,7 @@ const PropertySellOrderABI = [
         "indexed": true,
         "internalType": "uint256",
         "name": "sellOrderId",
-        "type": "address"
+        "type": "uint256"
       },
       {
         "indexed": true,
@@ -269,12 +269,12 @@ export default function SellPage() {
           console.log('Fetched properties:', data.properties);
           setProperties(data.properties);
         } else {
-          console.error('Failed to fetch properties:', data.error);
-          toast.error(data.error || 'Failed to fetch properties');
+          console.error('Error fetching properties:', data.error);
+          console.error(data.error || 'Failed to fetch properties');
         }
       } catch (error) {
         console.error('Error fetching properties:', error);
-        toast.error('Failed to fetch your properties');
+        console.error('Failed to fetch your properties');
       } finally {
         setLoading(false);
       }
@@ -292,17 +292,17 @@ export default function SellPage() {
         const address = await newSigner.getAddress();
         setWalletAddress(address);
         setWalletConnected(true);
-        toast.success('Wallet connected successfully');
+        console.log('Wallet connected successfully');
       }
     } catch (error) {
       console.error('Error connecting wallet:', error);
-      toast.error('Failed to connect wallet');
+      console.error('Failed to connect wallet');
     }
   };
 
   const handleCreateSellOrder = async (propertyId: string, tokensNumber: number, pricePerToken: string) => {
     if (!signer || !walletAddress) {
-      toast.error('Please connect your wallet first');
+      console.error('Please connect your wallet first');
       return;
     }
 
@@ -367,8 +367,23 @@ export default function SellPage() {
       );
 
       console.log('Transaction sent:', tx.hash);
-      await tx.wait();
+      
+      // Wait for transaction and get the receipt
+      const receipt = await tx.wait();
       console.log('Transaction confirmed');
+
+      // Find the SellOrderCreated event in the receipt
+      const sellOrderCreatedEvent = receipt.logs.find(
+        (log: any) => log.fragment?.name === 'SellOrderCreated'
+      );
+
+      if (!sellOrderCreatedEvent) {
+        throw new Error('Could not find SellOrderCreated event in transaction receipt');
+      }
+
+      // Get the sell order ID from the event
+      const blockchainSellOrderId = sellOrderCreatedEvent.args[0];
+      console.log('Blockchain Sell Order ID:', blockchainSellOrderId.toString());
 
       // Create database record
       const response = await fetch('/api/sell-orders', {
@@ -383,7 +398,8 @@ export default function SellPage() {
           price_per_token: pricePerToken,
           wallet_address: walletAddress,
           tx_hash: tx.hash,
-          status: 'OPEN'
+          blockchain_sell_order_id: blockchainSellOrderId.toString(),
+          status: 'PENDING'
         }),
       });
 
@@ -392,11 +408,11 @@ export default function SellPage() {
         throw new Error(data.error || 'Failed to create sell order in database');
       }
 
-      toast.success('Sell order created successfully!');
+      console.log('Sell order created successfully!');
       router.refresh();
     } catch (error) {
       console.error('Error creating sell order:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to create sell order');
+      console.error(error instanceof Error ? error.message : 'Failed to create sell order');
     } finally {
       setCreating(false);
     }
@@ -597,18 +613,6 @@ export default function SellPage() {
           </div>
         )}
       </div>
-
-      {/* Toast Notifications */}
-      <Toaster 
-        position="bottom-center"
-        toastOptions={{
-          style: {
-            background: '#1F2937',
-            color: '#fff',
-            border: '1px solid #374151'
-          }
-        }}
-      />
     </div>
   );
 } 

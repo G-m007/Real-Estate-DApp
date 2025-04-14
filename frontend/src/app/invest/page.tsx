@@ -5,7 +5,7 @@ import { useUser } from '@clerk/nextjs';
 import { ethers } from 'ethers';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { toast } from 'react-hot-toast';
+import { getUserDetails } from "../../../server/index";
 
 const PROPERTY_INVESTMENT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 const PROPERTY_SELL_ORDER_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
@@ -170,16 +170,16 @@ export default function InvestmentPage() {
         setSellOrders(data.sellOrders.filter((order: SellOrder) => order.isActive));
       }
     } catch (error) {
-      console.error('Error fetching sell orders:', error);
-      toast.error('Failed to fetch marketplace listings');
+      console.error('Error fetching marketplace listings:', error);
+      console.error('Failed to fetch marketplace listings');
     } finally {
       setLoadingSellOrders(false);
     }
   };
 
   const connectWallet = async () => {
-    if (typeof window.ethereum === 'undefined') {
-      toast.error('Please install MetaMask to invest');
+    if (!window.ethereum) {
+      console.error('Please install MetaMask to invest');
       return;
     }
 
@@ -190,7 +190,7 @@ export default function InvestmentPage() {
       
       setWalletAddress(accounts[0]);
       setWalletConnected(true);
-      toast.success('Wallet connected successfully');
+      console.log('Wallet connected successfully');
 
       window.ethereum.on('accountsChanged', (newAccounts: string[]) => {
         if (newAccounts.length === 0) {
@@ -202,13 +202,13 @@ export default function InvestmentPage() {
       });
     } catch (error) {
       console.error('Error connecting wallet:', error);
-      toast.error('Failed to connect wallet');
+      console.error('Failed to connect wallet');
     }
   };
 
   const handleBuyTokens = async (sellOrder: SellOrder) => {
     if (!walletConnected) {
-      toast.error('Please connect your wallet first');
+      console.error('Please connect your wallet first');
       return;
     }
 
@@ -229,13 +229,13 @@ export default function InvestmentPage() {
         value: ethers.parseEther(totalPrice.toString())
       });
 
-      toast.loading('Processing purchase...', { id: 'buy-tokens' });
+      console.log('Processing purchase...');
       
       // Wait for transaction confirmation
       const receipt = await tx.wait();
       
       if (receipt.status === 1) {
-        toast.success('Purchase successful!', { id: 'buy-tokens' });
+        console.log('Purchase successful!');
         
         // Update database
         const response = await fetch(`/api/sell-orders/${sellOrder.id}`, {
@@ -258,7 +258,7 @@ export default function InvestmentPage() {
       }
     } catch (error: any) {
       console.error('Error buying tokens:', error);
-      toast.error(error.message || 'Failed to buy tokens', { id: 'buy-tokens' });
+      console.error(error.message || 'Failed to buy tokens');
     }
   };
 

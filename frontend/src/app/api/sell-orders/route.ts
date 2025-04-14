@@ -1,61 +1,65 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { neon } from '@neondatabase/serverless';
+import { neon, neonConfig } from '@neondatabase/serverless';
+import { auth } from '@clerk/nextjs/server';
+
+neonConfig.fetchConnectionCache = true;
+
+const sql = neon(process.env.DATABASE_URL!);
 
 // POST endpoint to create a new sell order
-export async function POST(req: NextRequest) {
+export async function POST(request: Request) {
   try {
-    const sql = neon(process.env.NEXT_PUBLIC_DATABASE_URL!);
-    const body = await req.json();
-    const { property_id, user_id, tokens, price_per_token, wallet_address, tx_hash } = body;
-
-    // Validate required fields
-    if (!property_id || !user_id || !tokens || !price_per_token || !wallet_address || !tx_hash) {
-      return NextResponse.json({
-        success: false,
-        error: 'Missing required fields'
-      }, { status: 400 });
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
     }
 
-    // Insert the sell order with status 'PENDING'
-    const response = await sql`
+    const { 
+      property_id,
+      tokens,
+      price_per_token,
+      wallet_address,
+      blockchain_sell_order_id,
+      tx_hash
+    } = await request.json();
+
+    // Create the sell order
+    const [sellOrder] = await sql`
       INSERT INTO sell_orders (
-        property_id,
         user_id,
+        property_id,
         tokens,
         price_per_token,
         wallet_address,
+        blockchain_sell_order_id,
         tx_hash,
         status
       ) VALUES (
+        ${userId},
         ${property_id},
-        ${user_id},
         ${tokens},
         ${price_per_token},
         ${wallet_address},
+        ${blockchain_sell_order_id},
         ${tx_hash},
         'PENDING'
-      ) RETURNING *
+      )
+      RETURNING *
     `;
 
     return NextResponse.json({
       success: true,
-      sellOrder: response[0]
+      sellOrder
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error creating sell order:', error);
-    
-    // Check if it's a constraint violation error
-    if (error.message.includes('valid_status')) {
-      return NextResponse.json({
-        success: false,
-        error: 'Invalid status value. Status must be one of: PENDING, COMPLETED, CANCELLED'
-      }, { status: 400 });
-    }
-    
-    return NextResponse.json({
-      success: false,
-      error: error.message || 'Failed to create sell order'
-    }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: 'Failed to create sell order' },
+      { status: 500 }
+    );
   }
 }
 

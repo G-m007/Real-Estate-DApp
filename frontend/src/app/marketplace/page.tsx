@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { ethers } from 'ethers';
 import Link from 'next/link';
-import { toast } from 'react-hot-toast';
+import { getUserDetails } from "../../../server/index";
 
 const PROPERTY_SELL_ORDER_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
 
@@ -20,6 +20,50 @@ const PropertySellOrderABI = [
     "name": "buyTokens",
     "outputs": [],
     "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sellOrderId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getSellOrder",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "seller",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "propertyId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "tokens",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "pricePerToken",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "isActive",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint256",
+        "name": "createdAt",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   }
 ];
@@ -38,6 +82,7 @@ type SellOrder = {
   location: string;
   imageUrl: string;
   buyer_id?: string;
+  blockchain_sell_order_id?: number;
 };
 
 export default function MarketplacePage() {
@@ -75,16 +120,16 @@ export default function MarketplacePage() {
         throw new Error(data.error || 'Failed to fetch sell orders');
       }
     } catch (error) {
-      console.error('Error fetching sell orders:', error);
-      toast.error('Failed to fetch marketplace listings');
+      console.error('Error fetching marketplace listings:', error);
+      console.error('Failed to fetch marketplace listings');
     } finally {
       setLoadingSellOrders(false);
     }
   };
 
   const connectWallet = async () => {
-    if (typeof window.ethereum === 'undefined') {
-      toast.error('Please install MetaMask to invest');
+    if (!window.ethereum) {
+      console.error('Please install MetaMask to invest');
       return;
     }
 
@@ -95,7 +140,7 @@ export default function MarketplacePage() {
       
       setWalletAddress(accounts[0]);
       setWalletConnected(true);
-      toast.success('Wallet connected successfully');
+      console.log('Wallet connected successfully');
 
       window.ethereum.on('accountsChanged', (newAccounts: string[]) => {
         if (newAccounts.length === 0) {
@@ -107,22 +152,26 @@ export default function MarketplacePage() {
       });
     } catch (error) {
       console.error('Error connecting wallet:', error);
-      toast.error('Failed to connect wallet');
+      console.error('Failed to connect wallet');
     }
   };
 
   const handleBuyTokens = async (sellOrder: SellOrder) => {
     if (!walletConnected) {
-      toast.error('Please connect your wallet first');
+      console.error('Please connect your wallet first');
       return;
     }
 
     if (!isSignedIn) {
-      toast.error('Please sign in to buy tokens');
+      console.error('Please sign in to buy tokens');
       return;
     }
 
     try {
+      if (!sellOrder.blockchain_sell_order_id) {
+        throw new Error('No blockchain sell order ID available');
+      }
+
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
       
@@ -134,33 +183,44 @@ export default function MarketplacePage() {
 
       const totalPrice = sellOrder.tokens * sellOrder.price_per_token;
       
-      // Buy tokens from the sell order
-      const tx = await contract.buyTokens(sellOrder.id, {
+      console.log('Buying tokens with:', {
+        blockchainSellOrderId: sellOrder.blockchain_sell_order_id,
+        totalPrice: totalPrice.toString(),
+        totalPriceInEther: ethers.formatEther(totalPrice.toString())
+      });
+
+      // Buy tokens from the sell order using the blockchain ID
+      const tx = await contract.buyTokens(sellOrder.blockchain_sell_order_id, {
         value: ethers.parseEther(totalPrice.toString())
       });
 
-      toast.loading('Processing purchase...', { id: 'buy-tokens' });
+      console.log('Processing purchase...', tx.hash);
       
       // Wait for transaction confirmation
       const receipt = await tx.wait();
+      console.log('Transaction receipt:', receipt);
       
       if (receipt.status === 1) {
-        toast.success('Purchase successful!', { id: 'buy-tokens' });
+        console.log('Purchase successful!');
         
-        // Update database
-        const response = await fetch(`/api/sell-orders/${sellOrder.id}`, {
-          method: 'PATCH',
+        // Update database with transaction details
+        const updateResponse = await fetch(`/api/sell-orders/${sellOrder.id}/complete`, {
+          method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            status: 'COMPLETED',
             buyer_id: user?.id,
+            buyer_wallet_address: walletAddress,
+            tx_hash: receipt.hash,
+            tokens: sellOrder.tokens,
+            amount: totalPrice,
+            property_id: sellOrder.property_id
           }),
         });
 
-        if (!response.ok) {
-          console.error('Failed to update sell order status in database');
+        if (!updateResponse.ok) {
+          throw new Error('Failed to update database after successful purchase');
         }
 
         // Refresh sell orders
@@ -168,7 +228,7 @@ export default function MarketplacePage() {
       }
     } catch (error: any) {
       console.error('Error buying tokens:', error);
-      toast.error(error.message || 'Failed to buy tokens', { id: 'buy-tokens' });
+      console.error(error.message || 'Failed to buy tokens');
     }
   };
 

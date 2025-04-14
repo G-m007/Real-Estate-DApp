@@ -5,7 +5,8 @@ import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import { toast } from 'react-hot-toast';
+import { getUserDetails } from "../../../../server/index";
+import { ethers } from "ethers";
 
 type Property = {
   id: string;
@@ -108,12 +109,12 @@ export default function SellTokensPage({ params }: { params: { id: string } }) {
         throw new Error(data.error || 'Failed to create sell order');
       }
 
-      toast.success('Sell order created successfully');
+      console.log('Sell order created successfully');
       router.push('/dashboard');
     } catch (error: any) {
       console.error('Error creating sell order:', error);
       setError(error.message);
-      toast.error(error.message);
+      console.error(error.message);
     } finally {
       setSelling(false);
     }
